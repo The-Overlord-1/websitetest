@@ -88,7 +88,12 @@ export class DubSyncManager {
   private handlePlay = () => {
     if (this.backingAudioEl && this.videoEl) {
       this.backingAudioEl.currentTime = this.videoEl.currentTime;
-      this.backingAudioEl.play().catch(() => {});
+      // Avoid feeding the backing track back into the microphone during a take.
+      if (this.recordingActive) {
+        this.backingAudioEl.pause();
+      } else {
+        this.backingAudioEl.play().catch(() => {});
+      }
     }
   };
 
@@ -107,6 +112,12 @@ export class DubSyncManager {
 
     if (this.backingAudioEl) {
       this.backingAudioEl.currentTime = currentTime;
+    }
+
+    // Never restart a dubbed take while a microphone take is active.
+    if (this.recordingActive) {
+      this.lineTakeAudioMap.forEach((audio) => audio.pause());
+      return;
     }
 
     // Stop and re-align takes
