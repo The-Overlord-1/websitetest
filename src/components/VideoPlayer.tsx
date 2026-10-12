@@ -28,6 +28,8 @@ interface VideoPlayerProps {
   lines: DialogueLine[];
   onSelectLine: (line: DialogueLine) => void;
   isRecording: boolean;
+  muteOriginalAudio: boolean;
+  muteOriginalDuringTakes: boolean;
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -45,11 +47,29 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   lines,
   onSelectLine,
   isRecording,
+  muteOriginalAudio,
+  muteOriginalDuringTakes,
 }) => {
   const [videoError, setVideoError] = useState<string | null>(null);
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const progressBarRef = useRef<HTMLDivElement>(null);
+
+  // Keep the element volume tied to the user's slider preference. Muting uses
+  // the native muted property so recording never destroys the chosen volume.
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.volume = volume;
+    }
+  }, [volume, pack.videoBlobUrl, videoRef]);
+
+  const isInsideActiveDub = Boolean(
+    muteOriginalDuringTakes &&
+    activeTake &&
+    activeLine &&
+    currentTime >= activeLine.startTime &&
+    currentTime < activeLine.endTime
+  );
 
   // Reset error when pack or video URL changes
   useEffect(() => {
@@ -76,19 +96,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newVol = parseFloat(e.target.value);
     setVolume(newVol);
-    if (videoRef.current) {
-      videoRef.current.volume = newVol;
-      setIsMuted(newVol === 0);
-    }
+    setIsMuted(newVol === 0);
   };
 
   const toggleMute = () => {
-    if (!videoRef.current) return;
     if (isMuted) {
-      videoRef.current.volume = volume || 0.5;
+      if (volume === 0) setVolume(0.5);
       setIsMuted(false);
     } else {
-      videoRef.current.volume = 0;
       setIsMuted(true);
     }
   };
@@ -114,6 +129,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <video
             ref={videoRef}
             src={pack.videoBlobUrl}
+            muted={isMuted || muteOriginalAudio || isInsideActiveDub}
             playsInline
             preload="auto"
             className="w-full h-full object-contain pointer-events-none"
