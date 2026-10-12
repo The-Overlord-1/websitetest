@@ -1,0 +1,10 @@
+{
+  "name": "Voiceoke",
+  "description": "Cinematic voice-acting and dubbing game. Import Choicer Voicer scene packs, record replacement dialogue lines, and preview dubbed scenes locally in your browser.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
