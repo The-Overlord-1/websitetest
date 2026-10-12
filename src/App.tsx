@@ -82,10 +82,12 @@ export default function App() {
   const recordingTimerRef = useRef<number | null>(null);
   const countdownTimerRef = useRef<number | null>(null);
   const finishInProgressRef = useRef(false);
+  const recordingAttemptIdRef = useRef(0);
 
   // Release timers, microphone recording, and audition playback on unmount.
   useEffect(() => {
     return () => {
+      recordingAttemptIdRef.current++;
       if (countdownTimerRef.current !== null) {
         window.clearInterval(countdownTimerRef.current);
         countdownTimerRef.current = null;
@@ -338,6 +340,7 @@ export default function App() {
 
   // RECORDING WORKFLOW
   const handleStartRecordLine = async (line: DialogueLine) => {
+    const attemptId = ++recordingAttemptIdRef.current;
     // Clear any previous countdown/elapsed timer before starting a new take.
     if (countdownTimerRef.current !== null) {
       window.clearInterval(countdownTimerRef.current);
@@ -376,16 +379,23 @@ export default function App() {
           countdownTimerRef.current = null;
         }
         setIsCountingDown(false);
-        await initiateLiveRecording(line);
+        await initiateLiveRecording(line, attemptId);
       }
     }, 1000);
   };
 
-  const initiateLiveRecording = async (line: DialogueLine) => {
+  const initiateLiveRecording = async (line: DialogueLine, attemptId: number) => {
     try {
-      const { session, stop } = await startRecordingSession((lvl) => {
-        setAudioLevel(lvl);
+      const { stop } = await startRecordingSession((lvl) => {
+        if (attemptId === recordingAttemptIdRef.current) setAudioLevel(lvl);
       });
+      // If the user cancelled while the browser was waiting for microphone
+      // permission, immediately release the newly granted stream instead of
+      // starting a recording behind a closed modal.
+      if (attemptId !== recordingAttemptIdRef.current) {
+        await stop();
+        return;
+      }
       activeRecordStopFn.current = stop;
       setIsRecording(true);
 
@@ -409,6 +419,7 @@ export default function App() {
         }
       }, 100);
     } catch (err: unknown) {
+      if (attemptId !== recordingAttemptIdRef.current) return;
       setIsRecording(false);
       setMicErrorMessage(err instanceof Error ? err.message : String(err));
     }
@@ -486,6 +497,7 @@ export default function App() {
   };
 
   const handleCancelRecording = () => {
+    recordingAttemptIdRef.current++;
     finishInProgressRef.current = false;
     if (countdownTimerRef.current !== null) {
       window.clearInterval(countdownTimerRef.current);
