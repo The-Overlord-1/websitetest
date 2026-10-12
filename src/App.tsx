@@ -141,8 +141,10 @@ export default function App() {
   }, [currentPack, activeTakeMap, backingVolume, takesVolume]);
 
   useEffect(() => {
-    syncManagerRef.current?.setRecordingActive(isRecording || isCountingDown);
-  }, [isRecording, isCountingDown, currentPack]);
+    // Keep the sync engine in recording-safe mode during countdown, microphone
+    // permission prompts, active recording, and retakes.
+    syncManagerRef.current?.setRecordingActive(isRecordingModalOpen && !recordedTake);
+  }, [isRecordingModalOpen, recordedTake, currentPack]);
 
   // Video Event Listeners for currentTime & activeLine tracking
   useEffect(() => {
