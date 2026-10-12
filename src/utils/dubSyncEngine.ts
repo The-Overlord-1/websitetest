@@ -12,7 +12,7 @@ export class DubSyncManager {
 
   private backingVolume = 0.8;
   private takesVolume = 1.0;
-  private originalMutedDuringTakes = true;
+  private recordingActive = false;
   private isDestroyed = false;
 
   constructor(
@@ -67,8 +67,12 @@ export class DubSyncManager {
     });
   }
 
-  public setOriginalMuted(muted: boolean) {
-    this.originalMutedDuringTakes = muted;
+  public setRecordingActive(active: boolean) {
+    this.recordingActive = active;
+    if (active) {
+      // Never replay an existing take over the microphone during a retake.
+      this.lineTakeAudioMap.forEach((audio) => audio.pause());
+    }
   }
 
   private setupListeners() {
@@ -112,7 +116,7 @@ export class DubSyncManager {
         if (currentTime >= line.startTime && currentTime < line.endTime) {
           const offset = currentTime - line.startTime;
           audio.currentTime = offset;
-          if (!this.videoEl?.paused) {
+          if (!this.recordingActive && !this.videoEl?.paused) {
             audio.play().catch(() => {});
           }
         } else {
@@ -135,16 +139,20 @@ export class DubSyncManager {
       }
     }
 
-    // Check each line take trigger
-    let isCurrentlyInUserDubbedLine = false;
+    // During a recording, keep the scene visible but do not play existing takes
+    // into the microphone while the user is performing a retake.
+    if (this.recordingActive) {
+      this.lineTakeAudioMap.forEach((audio) => audio.pause());
+      return;
+    }
 
+    // Check each line take trigger
     for (const line of this.lines) {
       const takeAudio = this.lineTakeAudioMap.get(line.id);
       const isWithinLine = currentTime >= line.startTime && currentTime <= line.endTime;
 
       if (takeAudio) {
         if (isWithinLine) {
-          isCurrentlyInUserDubbedLine = true;
           if (takeAudio.paused) {
             const offset = Math.max(0, currentTime - line.startTime);
             takeAudio.currentTime = offset;
@@ -159,18 +167,6 @@ export class DubSyncManager {
       }
     }
 
-    // If user has a take active and wants original vocals muted during takes
-    if (this.originalMutedDuringTakes) {
-      if (isCurrentlyInUserDubbedLine) {
-        if (this.videoEl.volume > 0.05) {
-          this.videoEl.volume = 0.0;
-        }
-      } else {
-        if (this.videoEl.volume === 0.0) {
-          this.videoEl.volume = 1.0;
-        }
-      }
-    }
   };
 
   private handleEnded = () => {
@@ -192,7 +188,6 @@ export class DubSyncManager {
       this.videoEl.removeEventListener('seeking', this.handleSeek);
       this.videoEl.removeEventListener('timeupdate', this.handleTimeUpdate);
       this.videoEl.removeEventListener('ended', this.handleEnded);
-      this.videoEl.volume = 1.0;
     }
     if (this.backingAudioEl) {
       this.backingAudioEl.pause();
