@@ -81,6 +81,29 @@ export default function App() {
   const activeRecordStopFn = useRef<(() => Promise<{ blob: Blob; duration: number }>) | null>(null);
   const recordingTimerRef = useRef<number | null>(null);
   const countdownTimerRef = useRef<number | null>(null);
+  const finishInProgressRef = useRef(false);
+
+  // Release timers, microphone recording, and audition playback on unmount.
+  useEffect(() => {
+    return () => {
+      if (countdownTimerRef.current !== null) {
+        window.clearInterval(countdownTimerRef.current);
+        countdownTimerRef.current = null;
+      }
+      if (recordingTimerRef.current !== null) {
+        window.clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+      if (activeRecordStopFn.current) {
+        activeRecordStopFn.current().catch(() => {});
+        activeRecordStopFn.current = null;
+      }
+      if (auditionAudioRef.current) {
+        auditionAudioRef.current.pause();
+        auditionAudioRef.current = null;
+      }
+    };
+  }, []);
 
   // Create one sync manager per loaded scene. Do not destroy it every time
   // a volume or take changes: that caused playback state and video volume resets.
@@ -390,25 +413,28 @@ export default function App() {
   };
 
   const handleFinishRecording = async () => {
-    if (recordingTimerRef.current) {
-      clearInterval(recordingTimerRef.current);
+    if (finishInProgressRef.current) return;
+    const stopRecording = activeRecordStopFn.current;
+    if (!stopRecording) return;
+    finishInProgressRef.current = true;
+
+    if (recordingTimerRef.current !== null) {
+      window.clearInterval(recordingTimerRef.current);
       recordingTimerRef.current = null;
     }
 
-    if (videoRef.current) {
-      videoRef.current.pause();
-    }
+    if (videoRef.current) videoRef.current.pause();
 
-    if (activeRecordStopFn.current) {
-      const { blob, duration: dur } = await activeRecordStopFn.current();
+    try {
       activeRecordStopFn.current = null;
+      const { blob, duration: dur } = await stopRecording();
       setIsRecording(false);
+      setAudioLevel(0);
 
-      if (recordingLine) {
+      if (recordingLine && blob.size > 0) {
         const existingTakes = lineTakes.get(recordingLine.id) || [];
         const nextTakeNum = existingTakes.length + 1;
         const takeUrl = URL.createObjectURL(blob);
-
         const newTake: DubTake = {
           id: `take_${recordingLine.id}_${Date.now()}`,
           lineId: recordingLine.id,
@@ -418,9 +444,15 @@ export default function App() {
           duration: dur,
           recordedAt: Date.now(),
         };
-
         setRecordedTake(newTake);
+      } else if (blob.size === 0) {
+        setMicErrorMessage('No audio was captured. Check your microphone and try recording again.');
       }
+    } catch (err: unknown) {
+      setMicErrorMessage(err instanceof Error ? err.message : String(err));
+      setIsRecording(false);
+    } finally {
+      finishInProgressRef.current = false;
     }
   };
 
@@ -452,6 +484,7 @@ export default function App() {
   };
 
   const handleCancelRecording = () => {
+    finishInProgressRef.current = false;
     if (countdownTimerRef.current !== null) {
       window.clearInterval(countdownTimerRef.current);
       countdownTimerRef.current = null;
@@ -696,7 +729,7 @@ export default function App() {
                     handleSeekToLine(l);
                   }}
                   isRecording={isRecording}
-                  muteOriginalAudio={isRecording || isCountingDown}
+                  muteOriginalAudio={isRecordingModalOpen && !recordedTake}
                   muteOriginalDuringTakes={muteOriginalDuringTakes}
                 />
 
